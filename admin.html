@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理后台 - 江苏专转本资讯网</title>
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { background: #f0f2f5; }
+        .admin-header {
+            background: #001529;
+            color: #fff;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            height: 50px;
+            justify-content: space-between;
+        }
+        .admin-header h1 { font-size: 18px; color: #fff; margin: 0; }
+        .admin-header a { color: #fff; font-size: 14px; text-decoration: none; opacity: 0.7; }
+        .admin-header a:hover { opacity: 1; }
+        .admin-container {
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        .stat-cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-card .num { font-size: 32px; font-weight: bold; margin-bottom: 4px; }
+        .stat-card .label { font-size: 13px; color: #999; }
+        .stat-card.c1 .num { color: #1677ff; }
+        .stat-card.c2 .num { color: #52c41a; }
+        .stat-card.c3 .num { color: #faad14; }
+        .stat-card.c4 .num { color: #ff4d4f; }
+        .panel {
+            background: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .panel h3 {
+            font-size: 16px;
+            color: #222;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            margin-bottom: 14px;
+        }
+        .tab-bar span {
+            padding: 7px 18px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #888;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab-bar span.active {
+            color: #1677ff;
+            border-bottom-color: #1677ff;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table th { background: #fafafa; padding: 10px 12px; text-align: left; font-weight: bold; color: #555; border-bottom: 2px solid #eee; }
+        table td { padding: 10px 12px; border-bottom: 1px solid #f5f5f5; color: #444; }
+        table tr:hover td { background: #fafbfc; }
+        .btn-sm {
+            padding: 4px 12px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .btn-del { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; }
+        .btn-del:hover { background: #ff4d4f; color: #fff; }
+        .btn-view { background: #f0f7ff; color: #1677ff; border: 1px solid #91caff; margin-right: 4px; }
+        .category-tag {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            background: #f0f7ff;
+            color: #1677ff;
+        }
+        .no-access {
+            text-align: center;
+            padding: 80px 20px;
+            font-size: 18px;
+            color: #999;
+        }
+        @media (max-width:768px) {
+            .stat-cards { grid-template-columns: repeat(2, 1fr); }
+            table { font-size: 12px; }
+            table th, table td { padding: 6px 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-header">
+        <h1>管理后台</h1>
+        <div>
+            <a href="index.html">← 返回网站</a>
+        </div>
+    </div>
+
+    <div id="noAccess" class="no-access" style="display:none">
+        <p>⛔ 无权访问</p>
+        <p style="font-size:14px;color:#bbb;margin-top:12px">仅管理员可查看此页面</p>
+        <a href="index.html" style="color:#1677ff;font-size:14px">返回首页</a>
+    </div>
+
+    <div id="adminContent" style="display:none">
+        <div class="admin-container">
+            <!-- 统计卡片 -->
+            <div class="stat-cards">
+                <div class="stat-card c1"><div class="num" id="statQ">0</div><div class="label">总提问数</div></div>
+                <div class="stat-card c2"><div class="num" id="statA">0</div><div class="label">总回答数</div></div>
+                <div class="stat-card c3"><div class="num" id="statU">0</div><div class="label">活跃用户</div></div>
+                <div class="stat-card c4"><div class="num" id="statImg">0</div><div class="label">存储图片</div></div>
+            </div>
+
+            <!-- 问题管理 -->
+            <div class="panel">
+                <h3>📋 问题管理</h3>
+                <div id="questionTable"></div>
+            </div>
+
+            <!-- 用户列表 -->
+            <div class="panel">
+                <h3>👥 用户列表</h3>
+                <div id="userTable"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var ADMIN_EMAIL = '1907017471@qq.com';
+        var currentUser = null;
+
+        function init() {
+            if (!window.supabaseClient) { setTimeout(init, 300); return; }
+            window.supabaseClient.auth.getSession().then(function(res) {
+                if (!res.data.session || !res.data.session.user) {
+                    document.getElementById('noAccess').style.display = 'block';
+                    return;
+                }
+                currentUser = res.data.session.user;
+                if (currentUser.email !== ADMIN_EMAIL) {
+                    document.getElementById('noAccess').style.display = 'block';
+                    return;
+                }
+                document.getElementById('adminContent').style.display = 'block';
+                loadAll();
+            });
+        }
+
+        function loadAll() {
+            loadStats();
+            loadQuestions();
+            loadUsers();
+        }
+
+        function loadStats() {
+            window.supabaseClient.from('questions').select('id',{count:'exact',head:true}).then(function(r) { document.getElementById('statQ').textContent = r.count||0; });
+            window.supabaseClient.from('answers').select('id',{count:'exact',head:true}).then(function(r) { document.getElementById('statA').textContent = r.count||0; });
+        }
+
+        function loadQuestions() {
+            window.supabaseClient.from('questions').select('*').order('created_at',{ascending:false}).limit(500)
+                .then(function(res) {
+                    var html = '<table><tr><th>分类</th><th>标题</th><th>作者</th><th>时间</th><th style="width:90px">操作</th></tr>';
+                    if (!res.data || res.data.length===0) { html += '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">暂无数据</td></tr>'; }
+                    else {
+                        res.data.forEach(function(q) {
+                            html += '<tr><td><span class="category-tag">'+(q.category||'无')+'</span></td><td><a href="community.html" target="_blank" style="color:#1677ff">'+escHtml(q.title)+'</a></td><td>'+(q.user_email||'?').split('@')[0]+'</td><td style="font-size:12px;color:#999">'+fmtDate(q.created_at)+'</td><td><button class="btn-sm btn-del" onclick="delQ('+q.id+',\''+escHtml(q.title)+'\')">删除</button></td></tr>';
+                        });
+                    }
+                    html += '</table>';
+                    document.getElementById('questionTable').innerHTML = html;
+
+                    // 计算活跃用户
+                    var users = {};
+                    res.data.forEach(function(q) { if(q.user_email) users[q.user_email]=true; });
+                    document.getElementById('statU').textContent = Object.keys(users).length;
+                });
+        }
+
+        function loadUsers() {
+            window.supabaseClient.from('questions').select('user_email').limit(1000).then(function(r1) {
+                window.supabaseClient.from('answers').select('user_email').limit(1000).then(function(r2) {
+                    var map = {};
+                    function add(d) { if(d && d.user_email) { var e=d.user_email; var n=e.split('@')[0]; if(!map[e]) map[e]={email:e,name:n,q:0,a:0}; map[e].q++; } }
+                    if(r1.data) r1.data.forEach(add);
+                    if(r2.data) { r2.data.forEach(function(d){ if(d && d.user_email){ var e=d.user_email; var n=e.split('@')[0]; if(!map[e]) map[e]={email:e,name:n,q:0,a:0}; map[e].a++; } }); }
+                    var list = [];
+                    for(var k in map) { if(map.hasOwnProperty(k)) list.push(map[k]); }
+                    list.sort(function(a,b){ return (b.q+b.a)-(a.q+a.a); });
+
+                    var html = '<table><tr><th>#</th><th>用户名</th><th>邮箱</th><th>提问</th><th>回答</th></tr>';
+                    if(list.length===0) { html += '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">暂无用户</td></tr>'; }
+                    else {
+                        list.forEach(function(u,i) {
+                            html += '<tr><td>'+(i+1)+'</td><td><b>'+u.name+'</b></td><td style="font-size:12px;color:#999">'+u.email+'</td><td>'+(u.q>0?'<span style="color:#1677ff;font-weight:bold">'+u.q+'</span>':'-')+'</td><td>'+(u.a>0?'<span style="color:#52c41a;font-weight:bold">'+u.a+'</span>':'-')+'</td></tr>';
+                        });
+                    }
+                    html += '</table>';
+                    document.getElementById('userTable').innerHTML = html;
+                });
+            });
+        }
+
+        function delQ(qid, title) {
+            if (!confirm('删除问题：'+title+'？\n\n所有回答也会被一并删除。')) return;
+            window.supabaseClient.from('answers').delete().eq('question_id',qid).then(function() {
+                window.supabaseClient.from('questions').delete().eq('id',qid).then(function(res) {
+                    if(res.error){ alert('失败:'+res.error.message); return; }
+                    loadAll();
+                });
+            });
+        }
+
+        function fmtDate(d) { if(!d) return ''; return new Date(d).toLocaleDateString('zh-CN'); }
+        function escHtml(s) { var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+        init();
+    </script>
+    <script src="supabase.js"></script>
+</body>
+</html>
