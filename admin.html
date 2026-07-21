@@ -205,27 +205,109 @@
         }
 
         function loadUsers() {
-            window.supabaseClient.from('questions').select('user_email').limit(1000).then(function(r1) {
-                window.supabaseClient.from('answers').select('user_email').limit(1000).then(function(r2) {
-                    var map = {};
-                    function add(d) { if(d && d.user_email) { var e=d.user_email; var n=e.split('@')[0]; if(!map[e]) map[e]={email:e,name:n,q:0,a:0}; map[e].q++; } }
-                    if(r1.data) r1.data.forEach(add);
-                    if(r2.data) { r2.data.forEach(function(d){ if(d && d.user_email){ var e=d.user_email; var n=e.split('@')[0]; if(!map[e]) map[e]={email:e,name:n,q:0,a:0}; map[e].a++; } }); }
-                    var list = [];
-                    for(var k in map) { if(map.hasOwnProperty(k)) list.push(map[k]); }
-                    list.sort(function(a,b){ return (b.q+b.a)-(a.q+a.a); });
+            // 先查 auth.users，再关联 posts 数据
+            window.supabaseClient.rpc('get_user_list').then(function(authRes) {
+                window.supabaseClient.from('questions').select('user_email').limit(2000).then(function(r1) {
+                    window.supabaseClient.from('answers').select('user_email').limit(2000).then(function(r2) {
+                        // 统计帖子数据
+                        var postMap = {};
+                        function addPost(email) { if(email){ if(!postMap[email]) postMap[email]={q:0,a:0}; postMap[email].q++; } }
+                        function addAns(email) { if(email){ if(!postMap[email]) postMap[email]={q:0,a:0}; postMap[email].a++; } }
+                        if(r1.data) r1.data.forEach(function(d){ addPost(d.user_email); });
+                        if(r2.data) r2.data.forEach(function(d){ addAns(d.user_email); });
 
-                    var html = '<table><tr><th>#</th><th>用户名</th><th>邮箱</th><th>提问</th><th>回答</th></tr>';
-                    if(list.length===0) { html += '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">暂无用户</td></tr>'; }
-                    else {
-                        list.forEach(function(u,i) {
-                            html += '<tr><td>'+(i+1)+'</td><td><b>'+u.name+'</b></td><td style="font-size:12px;color:#999">'+u.email+'</td><td>'+(u.q>0?'<span style="color:#1677ff;font-weight:bold">'+u.q+'</span>':'-')+'</td><td>'+(u.a>0?'<span style="color:#52c41a;font-weight:bold">'+u.a+'</span>':'-')+'</td></tr>';
+                        // 合并 auth 用户和活跃用户
+                        var allUsers = {};
+                        var authList = authRes.data || [];
+
+                        authList.forEach(function(u) {
+                            allUsers[u.email] = {
+                                email: u.email,
+                                name: (u.email||'').split('@')[0],
+                                lastLogin: u.last_sign_in_at,
+                                createdAt: u.created_at,
+                                confirmed: !!u.confirmed_at,
+                                q: (postMap[u.email]||{}).q || 0,
+                                a: (postMap[u.email]||{}).a || 0,
+                                isAuth: true
+                            };
                         });
-                    }
-                    html += '</table>';
-                    document.getElementById('userTable').innerHTML = html;
+
+                        // 补充只发过帖但不在 auth 列表中的用户
+                        for (var email in postMap) {
+                            if (postMap.hasOwnProperty(email) && !allUsers[email]) {
+                                allUsers[email] = {
+                                    email: email,
+                                    name: email.split('@')[0],
+                                    lastLogin: null,
+                                    createdAt: null,
+                                    confirmed: false,
+                                    q: postMap[email].q || 0,
+                                    a: postMap[email].a || 0,
+                                    isAuth: false
+                                };
+                            }
+                        }
+
+                        var list = [];
+                        for (var k in allUsers) { if (allUsers.hasOwnProperty(k)) list.push(allUsers[k]); }
+                        list.sort(function(a, b) {
+                            var aActive = a.lastLogin ? new Date(a.lastLogin).getTime() : 0;
+                            var bActive = b.lastLogin ? new Date(b.lastLogin).getTime() : 0;
+                            return bActive - aActive;
+                        });
+
+                        var now = Date.now();
+                        var onlineCount = 0;
+
+                        var html = '<table><tr><th>#</th><th>用户名</th><th>邮箱</th><th>状态</th><th>最后登录</th><th>提问</th><th>回答</th></tr>';
+                        if (list.length === 0) {
+                            html += '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">暂无用户</td></tr>';
+                        } else {
+                            list.forEach(function(u, i) {
+                                // 状态：15分钟内在线
+                                var isOnline = u.lastLogin && (now - new Date(u.lastLogin).getTime()) < 15 * 60 * 1000;
+                                var statusHtml = '';
+                                if (isOnline) {
+                                    onlineCount++;
+                                    statusHtml = '<span style="display:inline-block;width:8px;height:8px;background:#52c41a;border-radius:50%;margin-right:4px"></span><span style="color:#52c41a;font-weight:bold">在线</span>';
+                                } else if (u.lastLogin) {
+                                    statusHtml = '<span style="color:#999">离线</span>';
+                                } else {
+                                    statusHtml = '<span style="color:#ccc">-</span>';
+                                }
+
+                                var lastLoginText = u.lastLogin ? fmtRelative(u.lastLogin) : '-';
+                                var emailDisplay = u.email ? u.email : '-';
+
+                                html += '<tr>';
+                                html += '<td>' + (i + 1) + '</td>';
+                                html += '<td><b>' + u.name + '</b>' + (!u.isAuth ? ' <span style="font-size:10px;color:#ccc">旧</span>' : '') + '</td>';
+                                html += '<td style="font-size:12px;color:#999">' + emailDisplay + '</td>';
+                                html += '<td>' + statusHtml + '</td>';
+                                html += '<td style="font-size:12px;color:#999">' + lastLoginText + '</td>';
+                                html += '<td>' + (u.q > 0 ? '<b style="color:#1677ff">' + u.q + '</b>' : '-') + '</td>';
+                                html += '<td>' + (u.a > 0 ? '<b style="color:#52c41a">' + u.a + '</b>' : '-') + '</td>';
+                                html += '</tr>';
+                            });
+                        }
+                        html += '</table>';
+                        html += '<p style="margin-top:12px;font-size:13px;color:#888">共 ' + list.length + ' 人，其中 <b style="color:#52c41a">' + onlineCount + ' 人在线</b></p>';
+                        document.getElementById('userTable').innerHTML = html;
+                        document.getElementById('statU').textContent = list.length;
+                    });
                 });
             });
+        }
+
+        function fmtRelative(d) {
+            if (!d) return '-';
+            var sec = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+            if (sec < 60) return '刚刚';
+            if (sec < 3600) return Math.floor(sec/60) + '分钟前';
+            if (sec < 86400) return Math.floor(sec/3600) + '小时前';
+            if (sec < 2592000) return Math.floor(sec/86400) + '天前';
+            return new Date(d).toLocaleDateString('zh-CN');
         }
 
         function delQ(qid, title) {
